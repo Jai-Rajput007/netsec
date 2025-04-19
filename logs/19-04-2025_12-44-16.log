@@ -1,0 +1,4 @@
+[2025-04-19 12:44:16,664] 53 root - INFO - Starting data extraction and insertion process
+[2025-04-19 12:44:16,664] 19 root - INFO - Initializing NetworkDataExtract
+[2025-04-19 12:44:16,664] 26 root - INFO - Converting CSV to JSON: Network_Data\dataset_full.csv
+[2025-04-19 12:44:24,448] 37 root - INFO - Inserting data into MongoDB: NETSEC.NetworkData
