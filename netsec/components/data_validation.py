@@ -9,8 +9,8 @@ from netsec.utils.main_utils.utils import read_yaml_file, write_yaml_file
 import pandas as pd
 import os,sys
 
-class DataValidation:
-    def __init__(self,data_ingestion_artifact:DataIngestionArtifact,data_validation_config = DataValidationConfig):
+class DataValidation:  
+    def __init__(self,data_ingestion_artifact:DataIngestionArtifact,data_validation_config:DataValidationConfig):
         try:
             self.data_ingestion_artifact = data_ingestion_artifact
             self.data_validation_config = data_validation_config
@@ -135,57 +135,52 @@ class DataValidation:
             train_file_path = self.data_ingestion_artifact.trained_file_path
             test_file_path = self.data_ingestion_artifact.test_file_path
 
+            # Ensure the files exist
+            if not os.path.exists(train_file_path):
+                raise ValueError(f"Training file {train_file_path} does not exist")
+            if not os.path.exists(test_file_path):
+                raise ValueError(f"Test file {test_file_path} does not exist")
+
             logging.info(f"Reading training data from {train_file_path}")
             train_dataframe = DataValidation.read_data(train_file_path)
             
             logging.info(f"Reading test data from {test_file_path}")
             test_dataframe = DataValidation.read_data(test_file_path)
 
-            logging.info("Validating number of columns")
-            status = self.validate_number_of_columns(dataframe=train_dataframe)
-            if not status:
-                error_message += "Train dataframe does not contain all columns. "
-                raise ValueError(error_message)
-
-            status = self.validate_number_of_columns(dataframe=test_dataframe)
-            if not status:
-                error_message += "Test dataframe does not contain all columns. "
-                raise ValueError(error_message)
-            
-            logging.info("Checking for dataset drift")
-            status = self.detect_dataset_drift(base_df=train_dataframe, current_df=test_dataframe)
-            
-            logging.info("Saving validated datasets")
+            # Create directories
             os.makedirs(self.data_validation_config.valid_data_dir, exist_ok=True)
             os.makedirs(self.data_validation_config.invalid_data_dir, exist_ok=True)
 
-            if status:
-                train_dataframe.to_csv(
-                    self.data_validation_config.valid_train_file_path, index=False, header=True
-                )
-                test_dataframe.to_csv(
-                    self.data_validation_config.valid_test_file_path, index=False, header=True
-                )
-                logging.info("Saved validated datasets")
+            logging.info("Validating number of columns")
+            validation_status = self.validate_number_of_columns(dataframe=train_dataframe)
+            if not validation_status:
+                error_message += "Train dataframe does not contain all columns. "
+                logging.warning(error_message)
+                # Save to invalid directory
+                train_dataframe.to_csv(self.data_validation_config.invalid_train_file_path, index=False)
+                test_dataframe.to_csv(self.data_validation_config.invalid_test_file_path, index=False)
             else:
-                train_dataframe.to_csv(
-                    self.data_validation_config.invalid_train_file_path, index=False, header=True
-                )
-                test_dataframe.to_csv(
-                    self.data_validation_config.invalid_test_file_path, index=False, header=True
-                )
-                logging.info("Saved invalid datasets due to drift")
+                # Save to valid directory
+                train_dataframe.to_csv(self.data_validation_config.valid_train_file_path, index=False)
+                test_dataframe.to_csv(self.data_validation_config.valid_test_file_path, index=False)
 
+            logging.info("Checking for dataset drift")
+            drift_status = self.detect_dataset_drift(base_df=train_dataframe, current_df=test_dataframe)
+            
             data_validation_artifact = DataValidationArtifact(
-                validation_status=status,
-                valid_train_file_path=self.data_validation_config.valid_train_file_path if status else None,
-                valid_test_file_path=self.data_validation_config.valid_test_file_path if status else None,
-                invalid_train_file_path=self.data_validation_config.invalid_train_file_path if not status else None,
-                invalid_test_file_path=self.data_validation_config.invalid_test_file_path if not status else None,
-                drift_report_file_path=self.data_validation_config.drift_report_file_path,
+                validation_status=validation_status and drift_status,
+                valid_train_file_path=self.data_validation_config.valid_train_file_path if validation_status else None,
+                valid_test_file_path=self.data_validation_config.valid_test_file_path if validation_status else None,
+                invalid_train_file_path=self.data_validation_config.invalid_train_file_path if not validation_status else None,
+                invalid_test_file_path=self.data_validation_config.invalid_test_file_path if not validation_status else None,
+                drift_report_file_path=self.data_validation_config.drift_report_file_path
             )
 
             logging.info(f"Data validation artifact: {data_validation_artifact}")
+            
+            if not validation_status:
+                raise ValueError(error_message)
+                
             return data_validation_artifact
 
         except Exception as e:

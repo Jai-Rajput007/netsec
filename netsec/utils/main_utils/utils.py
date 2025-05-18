@@ -5,6 +5,8 @@ import os,sys
 import numpy as np
 import dill
 import pickle
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import r2_score
 
 def read_yaml_file(file_path:str)-> dict:
     try:
@@ -59,3 +61,82 @@ def save_object(file_path: str, obj: object) -> None:
         logging.info("Exited the save_object method of MainUtils class")
     except Exception as e:
         raise NetworkSecurityException(e, sys) from e
+
+def load_object(file_path:str)-> None:
+    try:
+        if not os.path.exists(file_path):
+            raise Exception(f"File not exists")
+        with open(file_path,"rb") as file_obj:
+            return pickle.load(file_obj)
+    except Exception as e:
+        raise NetworkSecurityException(e,sys) from e
+
+def evaluate_models(X_train, y_train, X_test, y_test, models, param) -> dict:
+    try:
+        report = {}
+        
+        # Scale features for all models
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        for model_name, model in models.items():
+            logging.info(f"\n{'='*20} Training {model_name} {'='*20}")
+            para = param[model_name]
+            
+            # Adjust parameters for LogisticRegression
+            if model_name == "LogisticRegression":
+                model.set_params(max_iter=1000, tol=1e-4)
+                if 'max_iter' not in para:
+                    para['max_iter'] = [1000]
+                if 'tol' not in para:
+                    para['tol'] = [1e-4, 1e-3]
+            
+            # Configure GridSearchCV with parallel processing
+            gs = GridSearchCV(
+                model, para, 
+                cv=3,
+                n_jobs=-1,  # Enable parallel processing
+                verbose=1,   # Show less verbose output
+                scoring='f1'  # Use F1 score for classification
+            )
+            
+            logging.info("Starting GridSearchCV fit")
+            # Use scaled features for training
+            gs.fit(X_train_scaled, y_train)
+            
+            logging.info(f"Best parameters found: {gs.best_params_}")
+            
+            # Get best parameters and fit model
+            model.set_params(**gs.best_params_)
+            model.fit(X_train_scaled, y_train)
+            
+            # Make predictions using scaled features
+            y_train_pred = model.predict(X_train_scaled)
+            y_test_pred = model.predict(X_test_scaled)
+            
+            from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
+            
+            metrics = {
+                'train_accuracy': accuracy_score(y_train, y_train_pred),
+                'train_f1': f1_score(y_train, y_train_pred),
+                'train_precision': precision_score(y_train, y_train_pred),
+                'train_recall': recall_score(y_train, y_train_pred),
+                'test_accuracy': accuracy_score(y_test, y_test_pred),
+                'test_f1': f1_score(y_test, y_test_pred),
+                'test_precision': precision_score(y_test, y_test_pred),
+                'test_recall': recall_score(y_test, y_test_pred)
+            }
+            
+            logging.info(f"\nModel: {model_name} performance:")
+            for metric_name, value in metrics.items():
+                logging.info(f"{metric_name}: {value:.4f}")
+            
+            # Use F1 score for model selection
+            report[model_name] = metrics['test_f1']
+
+        return report
+    except Exception as e:
+        logging.error(f"Error in evaluate_models: {str(e)}")
+        raise NetworkSecurityException(e, sys)

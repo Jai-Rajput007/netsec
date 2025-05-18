@@ -20,14 +20,26 @@ class DataTransformation:
     def __init__(self,data_validation_artifact:DataValidationArtifact,
                  data_transformation_config:DataTransformationConfig):
         try:
-            self.data_validation_artifact:DataValidationArtifact = data_validation_artifact
-            self.data_transformation_config:DataTransformationConfig = data_transformation_config
+            logging.info(f"{'='*20} Data Transformation {'='*20}")
+            self.data_validation_artifact = data_validation_artifact
+            self.data_transformation_config = data_transformation_config
+            
+            # Validate paths immediately
+            if data_validation_artifact.valid_train_file_path is None:
+                raise ValueError("Valid train file path is None")
+            if data_validation_artifact.valid_test_file_path is None:
+                raise ValueError("Valid test file path is None")
+                
         except Exception as e:
-            raise NetworkSecurityException(e,sys)
+            raise NetworkSecurityException(e, sys)
 
     @staticmethod
     def read_data(file_path) -> pd.DataFrame:
         try:
+            if file_path is None:
+                raise ValueError(f"File path is None")
+            if not os.path.exists(file_path):
+                raise ValueError(f"File does not exist: {file_path}")
             return pd.read_csv(file_path)
         except Exception as e:
             raise NetworkSecurityException(e, sys)
@@ -43,21 +55,30 @@ class DataTransformation:
     def initiate_data_transformation(self) -> DataTransformationArtifact:
         try:
             logging.info("Starting data transformation")
-            train_df = DataTransformation.read_data(self.data_validation_artifact.valid_train_file_path)
-            test_df = DataTransformation.read_data(self.data_validation_artifact.valid_test_file_path)
-
-            logging.info(f"Available columns in training data: {train_df.columns.tolist()}")
-            if TARGET_COLUMN not in train_df.columns:
-                raise ValueError(f"Target column '{TARGET_COLUMN}' not found in training data.")
+            
+            valid_train_path = self.data_validation_artifact.valid_train_file_path
+            valid_test_path = self.data_validation_artifact.valid_test_file_path
+            
+            # Double check paths
+            if valid_train_path is None or valid_test_path is None:
+                raise ValueError(f"Invalid file paths. Train: {valid_train_path}, Test: {valid_test_path}")
                 
-            logging.info("Splitting input and target features")
+            if not os.path.exists(valid_train_path) or not os.path.exists(valid_test_path):
+                raise ValueError(f"Files not found. Train: {valid_train_path}, Test: {valid_test_path}")
+            
+            logging.info(f"Loading training data from: {valid_train_path}")
+            train_df = DataTransformation.read_data(valid_train_path)
+            logging.info(f"Loading test data from: {valid_test_path}")
+            test_df = DataTransformation.read_data(valid_test_path)
+
+            logging.info(f"Splitting input and target features")
+            if TARGET_COLUMN not in train_df.columns:
+                raise ValueError(f"Target column {TARGET_COLUMN} not found in training data")
+                
             input_feature_train_df = train_df.drop(columns=[TARGET_COLUMN], axis=1)
             target_feature_train_df = train_df[TARGET_COLUMN]
             target_feature_train_df = target_feature_train_df.replace(-1, 0)
 
-            if TARGET_COLUMN not in test_df.columns:
-                raise ValueError(f"Target column '{TARGET_COLUMN}' not found in test data.")
-                
             input_feature_test_df = test_df.drop(columns=[TARGET_COLUMN], axis=1)
             target_feature_test_df = test_df[TARGET_COLUMN]
             target_feature_test_df = target_feature_test_df.replace(-1, 0)
@@ -75,6 +96,7 @@ class DataTransformation:
             test_arr = numpy.c_[transformed_input_test_feature, numpy.array(target_feature_test_df)]
 
             logging.info("Saving transformed data")
+            # Create directories
             os.makedirs(os.path.dirname(self.data_transformation_config.transformed_train_file_path), exist_ok=True)
             os.makedirs(os.path.dirname(self.data_transformation_config.transformed_test_file_path), exist_ok=True)
             os.makedirs(os.path.dirname(self.data_transformation_config.transformed_object_file_path), exist_ok=True)
@@ -83,15 +105,16 @@ class DataTransformation:
             save_numpy_array_data(self.data_transformation_config.transformed_test_file_path, array=test_arr)
             save_object(self.data_transformation_config.transformed_object_file_path, preprocessor_object)
             
-            logging.info("Preparing data transformation artifact")
+            logging.info("Preparing transformation artifact")
             data_transformation_artifact = DataTransformationArtifact(
                 transformed_object_file_path=self.data_transformation_config.transformed_object_file_path,
                 transformed_train_file_path=self.data_transformation_config.transformed_train_file_path,
                 transformed_test_file_path=self.data_transformation_config.transformed_test_file_path
             )
 
-            logging.info(f"Data transformation artifact: {data_transformation_artifact}")
+            logging.info(f"Data transformation completed: {data_transformation_artifact}")
             return data_transformation_artifact
 
         except Exception as e:
+            logging.error(f"Error in data transformation: {str(e)}")
             raise NetworkSecurityException(e, sys)
